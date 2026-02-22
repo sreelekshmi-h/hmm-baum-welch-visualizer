@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HMM Baum–Welch Visualizer</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-badge">EM Algorithm</div>
+      <h1>HMM Baum–Welch <span class="accent">Visualizer</span></h1>
+      <p class="sub">Discrete-emission Hidden Markov Model trained entirely in your browser.</p>
+    </header>
+
+    <section class="grid2">
+      <div class="card">
+        <h2>Configuration</h2>
+
+        <label>Observation sequence <span class="label-hint">(space-separated symbols)</span></label>
+        <input id="obs" value="W H H W H W W H H W" />
+
+        <div class="row2">
+          <div>
+            <label>Hidden states (N)</label>
+            <input id="nStates" type="number" min="2" max="10" value="3" />
+          </div>
+          <div>
+            <label>Max iterations</label>
+            <input id="nIter" type="number" min="1" max="500" value="30" />
+          </div>
+        </div>
+
+        <div class="row2">
+          <div>
+            <label>Tolerance (Δ log-likelihood)</label>
+            <input id="tol" type="number" step="0.0001" value="0.0001" />
+          </div>
+          <div>
+            <label>Random seed</label>
+            <input id="seed" type="number" value="42" />
+          </div>
+        </div>
+
+        <label>Initialization</label>
+        <select id="initMode">
+          <option value="random" selected>Random</option>
+          <option value="uniform">Uniform</option>
+        </select>
+
+        <button id="trainBtn">▶ Train Model</button>
+        <p id="status" class="status"></p>
+
+        <details class="tips">
+          <summary>Tips & Notes</summary>
+          <ul>
+            <li>Longer sequences yield smoother convergence.</li>
+            <li>Multiple random seeds can help avoid local optima.</li>
+            <li>Increase iterations if log-likelihood hasn't plateaued.</li>
+          </ul>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>Log-likelihood Convergence</h2>
+        <canvas id="chart" width="520" height="240"></canvas>
+        <p class="small">Log-likelihood increases each EM iteration and stabilizes at convergence.</p>
+      </div>
+    </section>
+
+    <section class="grid3">
+      <div class="card param-card">
+        <h2>π — Initial Distribution</h2>
+        <div id="piTable"></div>
+      </div>
+      <div class="card param-card">
+        <h2>A — Transition Matrix</h2>
+        <div id="aTable"></div>
+      </div>
+      <div class="card param-card">
+        <h2>B — Emission Matrix</h2>
+        <div id="bTable"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>HMM State Diagram</h2>
+      <p class="small" style="margin-bottom:12px">Solid arrows = transition probabilities. Dashed arrows = emission probabilities. START shows π values.</p>
+      <div id="diagram"></div>
+    </section>
+
+    <section class="card">
+      <h2>Viterbi Decoding</h2>
+      <div class="grid2">
+        <div>
+          <h3 class="h3">Observations & Vocabulary</h3>
+          <pre id="obsOut"></pre>
+        </div>
+        <div>
+          <h3 class="h3">Most Likely Hidden State Sequence</h3>
+          <pre id="vitOut"></pre>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      Pure JS · Baum–Welch · Scaled Forward/Backward · Viterbi
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
