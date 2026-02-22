@@ -266,13 +266,23 @@ pre {
 }
 
 /* Diagram */
-#diagram svg {
+#diagram {
+  overflow-x: auto;
+  overflow-y: visible;
   width: 100%;
-  height: auto;
+}
+
+#diagram svg {
   display: block;
+  min-width: 100%;
+  height: auto;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: #f8fafd;
+}
+
+.diagram-card {
+  padding: 22px 12px !important;
 }
 
 /* Footer */

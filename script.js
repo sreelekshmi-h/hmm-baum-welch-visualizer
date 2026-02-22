@@ -345,14 +345,9 @@ function vecToTable(vec, digits=4) {
   return html;
 }
 
-// ---------- HMM Diagram (reference-image style) ----------
+// ---------- HMM Diagram ----------
 const STATE_COLORS = [
-  "#e97c2f",  // orange
-  "#3b82f6",  // blue
-  "#10b981",  // green
-  "#8b5cf6",  // purple
-  "#ef4444",  // red
-  "#f59e0b",  // amber
+  "#e97c2f", "#3b82f6", "#10b981", "#8b5cf6", "#ef4444", "#f59e0b",
 ];
 
 function renderHMMDiagram(hmm, symbolNames) {
@@ -365,199 +360,240 @@ function renderHMMDiagram(hmm, symbolNames) {
   const B = hmm.B;
   const pi = hmm.pi;
 
-  const W = 920;
-  const ROW_START = 80;    // START row y
-  const ROW_STATE = 240;   // hidden states row y
-  const ROW_OBS = 420;     // observations row y
-  const H = 530;
+  // Adaptive layout — node size and spacing scale with N so diagram never crowds
+  const NODE_R     = Math.max(14, Math.min(24, Math.floor(180 / (N + 1))));
+  const LOOP_H     = NODE_R * 2 + 8;
+  const LABEL_PAD  = 3;
 
-  const NODE_R = 36;
-  const OBS_W = 70, OBS_H = 38;
+  const MARGIN_LEFT  = 60;
+  const MARGIN_RIGHT = 40;
 
-  // X positions for states
-  const stateSpacing = Math.min(180, (W - 80) / N);
-  const stateStartX = W/2 - ((N-1) * stateSpacing) / 2;
-  const statePosX = Array.from({length: N}, (_, i) => stateStartX + i * stateSpacing);
+  // Ensure nodes are never closer than 3.6 radii apart (room for labels)
+  const minSpacing   = NODE_R * 6.0;
+  const BASE_USABLE  = 1100;
+  const neededUsable = N > 1 ? (N - 1) * minSpacing : minSpacing;
+  const effectiveUsable = Math.max(BASE_USABLE, neededUsable);
+  const W = MARGIN_LEFT + effectiveUsable + MARGIN_RIGHT;
 
-  // X positions for obs symbols
-  const obsSpacing = Math.min(160, (W - 80) / M);
-  const obsStartX = W/2 - ((M-1) * obsSpacing) / 2;
-  const obsPosX = Array.from({length: M}, (_, k) => obsStartX + k * obsSpacing);
+  const stateSpacing = N > 1 ? effectiveUsable / (N - 1) : 0;
+  const statePosX = Array.from({length: N}, (_, i) =>
+    N === 1 ? W / 2 : MARGIN_LEFT + i * stateSpacing);
+
+  // Obs nodes span same horizontal range as states
+  const obsUsable  = N > 1 ? (N - 1) * stateSpacing : effectiveUsable;
+  const obsSpacing = M > 1 ? obsUsable / (M - 1) : 0;
+  const obsPosX    = Array.from({length: M}, (_, k) =>
+    M === 1 ? W / 2 : MARGIN_LEFT + k * obsSpacing);
+
+  // Row Y centres — all derived from NODE_R
+  const ROW_START  = 50;
+  const ROW_LOOP   = ROW_START + 70 + LOOP_H;
+  const ROW_STATE  = ROW_LOOP + NODE_R + 40;
+  const ROW_EMIT_L = ROW_STATE + NODE_R + 50;
+  const ROW_OBS    = ROW_EMIT_L + 80;
+  const H          = ROW_OBS + 50;
 
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", W);
+  svg.setAttribute("height", H);
+  svg.setAttribute("style", "display:block;overflow:visible");
 
-  // Defs: markers for solid and dashed arrows
+  // ---- Arrow markers ----
   const defs = document.createElementNS(svgNS, "defs");
-  defs.innerHTML = `
-    <marker id="arr-solid" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8"/>
-    </marker>
-    <marker id="arr-start" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#7c3aed"/>
-    </marker>
-    ${STATE_COLORS.map((col, i) => `
-    <marker id="arr-state-${i}" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="${col}88"/>
-    </marker>
-    <marker id="arr-emit-${i}" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="${col}99"/>
-    </marker>
-    `).join('')}
-  `;
+  const markerDefs = [
+    { id: "arr-pi",    color: "#7c3aed" },
+    ...STATE_COLORS.map((c, i) => ({ id: `arr-t${i}`,  color: c })),
+    ...STATE_COLORS.map((c, i) => ({ id: `arr-e${i}`,  color: c + "bb" })),
+  ];
+  defs.innerHTML = markerDefs.map(m => `
+    <marker id="${m.id}" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,1 L10,5 L0,9 Z" fill="${m.color}"/>
+    </marker>`).join('');
   svg.appendChild(defs);
 
-  // Helper: create SVG element with attrs
-  function el(tag, attrs={}) {
+  // ---- Helpers ----
+  function el(tag, attrs) {
     const e = document.createElementNS(svgNS, tag);
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
     return e;
   }
 
-  function text(x, y, str, opts={}) {
-    const t = el("text", {
+  // Draw text with a white pill behind it so it's always readable
+  function labelPill(x, y, str, color, size=11) {
+    const g = document.createElementNS(svgNS, "g");
+    // measure approx width: ~6.5px per char at size 11
+    const charW = size * 0.62;
+    const tw = str.length * charW;
+    const pw = tw + LABEL_PAD * 2 + 4;
+    const ph = size + LABEL_PAD * 2;
+    const pill = el("rect", {
+      x: x - pw/2, y: y - ph + 2,
+      width: pw, height: ph,
+      rx: 4, ry: 4,
+      fill: "white",
+      stroke: color + "44",
+      "stroke-width": 1
+    });
+    const txt = el("text", {
       x, y,
-      fill: opts.fill || "#475569",
-      "font-size": opts.size || 12,
-      "font-family": opts.mono ? "'IBM Plex Mono', monospace" : "'DM Sans', sans-serif",
-      "text-anchor": opts.anchor || "middle",
-      "font-weight": opts.bold ? "600" : "400",
-      ...opts.extra
+      fill: color,
+      "font-size": size,
+      "font-family": "'IBM Plex Mono', monospace",
+      "text-anchor": "middle",
+      "font-weight": "600"
+    });
+    txt.textContent = str;
+    g.appendChild(pill);
+    g.appendChild(txt);
+    svg.appendChild(g);
+  }
+
+  function rowLabel(y, str) {
+    const t = el("text", {
+      x: 8, y: y + 4,
+      fill: "#b0bcd4",
+      "font-size": 10,
+      "font-family": "'IBM Plex Mono', monospace",
+      "text-anchor": "start",
+      "letter-spacing": "0.1em"
     });
     t.textContent = str;
     svg.appendChild(t);
-    return t;
   }
 
-  // Row labels
-  function rowLabel(y, label) {
-    const t = el("text", {
-      x: 12, y: y + 5,
-      fill: "#94a3b8",
-      "font-size": 11,
-      "font-family": "'IBM Plex Mono', monospace",
-      "text-anchor": "start",
-      "letter-spacing": "0.08em"
-    });
-    t.textContent = label;
-    svg.appendChild(t);
-  }
+  // ---- Background row bands ----
+  [ [ROW_START - 22, 44, "#f3f0ff22", "#7c3aed22"],
+    [ROW_STATE - NODE_R - 10, NODE_R*2+20, "#f8fafd", "#dde3ef"],
+    [ROW_OBS - 24, 48, "#f8fafd", "#dde3ef"],
+  ].forEach(([y, h, fill, stroke]) => {
+    svg.appendChild(el("rect", {
+      x: MARGIN_LEFT - 10, y,
+      width: effectiveUsable + 20, height: h,
+      rx: 10, fill, stroke, "stroke-width": 1
+    }));
+  });
 
   rowLabel(ROW_START, "START");
   rowLabel(ROW_STATE, "HIDDEN");
-  rowLabel(ROW_OBS, "OBSERVE");
-
-  // Row separator lines
-  [ROW_START + 55, ROW_STATE + 65].forEach(y => {
-    svg.appendChild(el("line", {
-      x1: 70, y1: y, x2: W - 10, y2: y,
-      stroke: "#e2e8f0", "stroke-width": 1, "stroke-dasharray": "4 4"
-    }));
-  });
+  rowLabel(ROW_OBS,   "OBSERVE");
 
   // ---- START node ----
   const startX = W / 2;
   const startY = ROW_START;
-
-  const startRect = el("rect", {
-    x: startX - 38, y: startY - 18,
-    width: 76, height: 36,
-    rx: 18, ry: 18,
-    fill: "#f3f0ff",
+  svg.appendChild(el("rect", {
+    x: startX - 40, y: startY - 16,
+    width: 80, height: 32,
+    rx: 16,
+    fill: "#ede9fe",
     stroke: "#7c3aed",
     "stroke-width": 2
+  }));
+  const stTxt = el("text", {
+    x: startX, y: startY + 6,
+    fill: "#7c3aed",
+    "font-size": 13,
+    "font-family": "'IBM Plex Mono', monospace",
+    "text-anchor": "middle",
+    "font-weight": "700"
   });
-  svg.appendChild(startRect);
-  text(startX, startY + 5, "START", { fill: "#7c3aed", size: 13, bold: true, mono: true });
+  stTxt.textContent = "START";
+  svg.appendChild(stTxt);
 
-  // ---- START → each state (π arrows) ----
+  // ---- π arrows: START → states ----
   for (let i = 0; i < N; i++) {
-    if (pi[i] < 0.01) continue;
+    if (pi[i] < 0.005) continue;
     const x2 = statePosX[i];
-    const y1 = startY + 18;
+    const y1 = startY + 16;
     const y2 = ROW_STATE - NODE_R;
-
-    // Curved path from START to state
-    const midX = (startX + x2) / 2;
-    const midY = (y1 + y2) / 2;
-    const d = `M ${startX} ${y1} Q ${midX} ${midY} ${x2} ${y2}`;
+    // Control point: bias horizontally toward target
+    const cx = (startX * 0.3 + x2 * 0.7);
+    const cy = (y1 + y2) / 2;
+    const d = `M ${startX} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
     svg.appendChild(el("path", {
       d, fill: "none",
       stroke: "#7c3aed",
-      "stroke-width": 1.8,
-      "stroke-dasharray": "6 3",
-      "marker-end": "url(#arr-start)",
-      opacity: 0.8
+      "stroke-width": 1.6,
+      "stroke-dasharray": "5 3",
+      "marker-end": "url(#arr-pi)"
     }));
-
-    // Label π near midpoint
-    const lx = midX + (x2 < startX ? -12 : 12);
-    const ly = midY - 6;
-    text(lx, ly, `π=${pi[i].toFixed(2)}`, { fill: "#7c3aed", size: 11, mono: true, anchor: "middle" });
+    // Label: place at 40% along the curve, offset left of the line
+    const t = 0.4;
+    const lx = (1-t)*(1-t)*startX + 2*(1-t)*t*cx + t*t*x2;
+    const ly = (1-t)*(1-t)*y1     + 2*(1-t)*t*cy + t*t*y2;
+    // perpendicular nudge to the left of travel direction
+    const dx = x2 - startX, dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const perpX = -dy/len * 18;  // left perpendicular
+    const perpY =  dx/len * 18;
+    labelPill(lx + perpX, ly + perpY + 6, `π=${pi[i].toFixed(2)}`, "#7c3aed", 10);
   }
 
-  // ---- Transition arrows (state → state) ----
+  // ---- Self-loops ----
+  for (let i = 0; i < N; i++) {
+    const p = A[i][i];
+    if (p < 0.005) continue;
+    const color = STATE_COLORS[i % STATE_COLORS.length];
+    const cx = statePosX[i];
+    const cy = ROW_STATE;
+    // Arc: departs top-left of circle, peaks at ROW_LOOP, returns top-right
+    const d = `M ${cx - NODE_R*0.7} ${cy - NODE_R*0.72}
+               C ${cx - NODE_R*2.2} ${cy - NODE_R - LOOP_H},
+                 ${cx + NODE_R*2.2} ${cy - NODE_R - LOOP_H},
+                 ${cx + NODE_R*0.7} ${cy - NODE_R*0.72}`;
+    svg.appendChild(el("path", {
+      d, fill: "none",
+      stroke: color + "cc",
+      "stroke-width": 1.8,
+      "marker-end": `url(#arr-t${i})`
+    }));
+    // Label at apex — always above the arc
+    labelPill(cx, cy - NODE_R - LOOP_H - 10, p.toFixed(2), color, 11);
+  }
+
+  // ---- Transition arrows (i ≠ j) ----
   for (let i = 0; i < N; i++) {
     for (let j = 0; j < N; j++) {
+      if (i === j) continue;
       const p = A[i][j];
-      if (p < 0.01) continue;
+      if (p < 0.005) continue;
 
       const color = STATE_COLORS[i % STATE_COLORS.length];
       const x1 = statePosX[i];
       const x2 = statePosX[j];
-      const y = ROW_STATE;
+      const y  = ROW_STATE;
 
-      if (i === j) {
-        // Self-loop above state
-        const loopR = NODE_R + 16;
-        const d = `M ${x1 - 14} ${y - NODE_R + 4}
-                   C ${x1 - loopR} ${y - NODE_R - 44},
-                     ${x1 + loopR} ${y - NODE_R - 44},
-                     ${x1 + 14} ${y - NODE_R + 4}`;
-        svg.appendChild(el("path", {
-          d, fill: "none",
-          stroke: color + "bb",
-          "stroke-width": 1.8,
-          "marker-end": `url(#arr-state-${i})`,
-        }));
-        text(x1, y - NODE_R - 50, p.toFixed(2), { fill: color, size: 11, mono: true });
-      } else {
-        // Curved arc between states
-        const dx = x2 - x1;
-        const sign = i < j ? -1 : 1;
-        const curve = 50 * sign;
-        const mx = (x1 + x2) / 2;
-        const my = y + curve;
+      // Offset the arrow edge to the circle boundary
+      const angle = Math.atan2(0, x2 - x1);
+      const sx = x1 + Math.cos(angle) * NODE_R;
+      const ex = x2 - Math.cos(angle) * NODE_R;
 
-        const ux = x2 - x1, uy = 0;
-        const dist = Math.abs(ux);
-        const normX = ux / dist;
-        const sx = x1 + normX * NODE_R;
-        const ex = x2 - normX * NODE_R;
+      // Curve above (i<j) or below (i>j) to separate bidirectional arrows
+      const bulge = i < j ? -40 : 40;
+      const mx = (sx + ex) / 2;
+      const my = y + bulge;
 
-        const d = `M ${sx} ${y} Q ${mx} ${my} ${ex} ${y}`;
-        svg.appendChild(el("path", {
-          d, fill: "none",
-          stroke: color + "99",
-          "stroke-width": 1.6,
-          "marker-end": `url(#arr-state-${i})`,
-        }));
+      const d = `M ${sx} ${y} Q ${mx} ${my} ${ex} ${y}`;
+      svg.appendChild(el("path", {
+        d, fill: "none",
+        stroke: color + "aa",
+        "stroke-width": 1.7,
+        "marker-end": `url(#arr-t${i})`
+      }));
 
-        // Label near curve midpoint
-        const t = 0.5;
-        const qx = (1-t)*(1-t)*sx + 2*(1-t)*t*mx + t*t*ex;
-        const qy = (1-t)*(1-t)*y + 2*(1-t)*t*my + t*t*y;
-        text(qx, qy + (sign < 0 ? -7 : 15), p.toFixed(2), { fill: color, size: 11, mono: true });
-      }
+      // Label at bezier midpoint, pushed away from the curve
+      const t = 0.5;
+      const qx = (1-t)*(1-t)*sx + 2*(1-t)*t*mx + t*t*ex;
+      const qy = (1-t)*(1-t)*y  + 2*(1-t)*t*my + t*t*y;
+      // Offset label further from curve apex
+      const labelOffY = bulge < 0 ? -14 : 14;
+      labelPill(qx, qy + labelOffY, p.toFixed(2), color, 11);
     }
   }
 
-  // ---- Emission arrows (state → obs) dashed ----
+  // ---- Emission arrows (state → obs box), dashed ----
   for (let i = 0; i < N; i++) {
     const color = STATE_COLORS[i % STATE_COLORS.length];
     for (let k = 0; k < M; k++) {
@@ -567,106 +603,105 @@ function renderHMMDiagram(hmm, symbolNames) {
       const x1 = statePosX[i];
       const y1 = ROW_STATE + NODE_R;
       const x2 = obsPosX[k];
-      const y2 = ROW_OBS - OBS_H/2;
+      const y2 = ROW_OBS - 20;
 
+      // Straight-ish path with slight S-curve
       const mx = (x1 + x2) / 2;
-      const my = (y1 + y2) / 2 + 20;
-
+      const my = ROW_EMIT_L;
       const d = `M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`;
       svg.appendChild(el("path", {
         d, fill: "none",
-        stroke: color + "77",
+        stroke: color + "66",
         "stroke-width": 1.4,
         "stroke-dasharray": "5 3",
-        "marker-end": `url(#arr-emit-${i})`,
-        opacity: 0.85
+        "marker-end": `url(#arr-e${i})`
       }));
 
-      // Label near midpoint
-      const t = 0.5;
-      const lx = (1-t)*(1-t)*x1 + 2*(1-t)*t*mx + t*t*x2;
-      const ly = (1-t)*(1-t)*y1 + 2*(1-t)*t*my + t*t*y2;
-      text(lx + 4, ly, p.toFixed(2), { fill: color + "cc", size: 10, mono: true });
+      // Label at ~40% along curve, nudged sideways
+      const t2 = 0.42;
+      const lx2 = (1-t2)*(1-t2)*x1 + 2*(1-t2)*t2*mx + t2*t2*x2;
+      const ly2 = (1-t2)*(1-t2)*y1 + 2*(1-t2)*t2*my + t2*t2*y2;
+      // push label to the side of the arrow
+      const sideX = x2 >= x1 ? 16 : -16;
+      labelPill(lx2 + sideX, ly2, p.toFixed(2), color, 10);
     }
   }
 
-  // ---- State nodes ----
+  // ---- Draw state nodes (on top so they cover arrow ends) ----
   for (let i = 0; i < N; i++) {
     const x = statePosX[i];
     const y = ROW_STATE;
     const color = STATE_COLORS[i % STATE_COLORS.length];
 
-    // Shadow
+    // Drop shadow
     svg.appendChild(el("circle", {
-      cx: x + 2, cy: y + 3, r: NODE_R,
-      fill: "rgba(0,0,0,0.06)"
+      cx: x+2, cy: y+3, r: NODE_R,
+      fill: "rgba(0,0,0,0.08)"
     }));
-
-    // Node
+    // Circle
     svg.appendChild(el("circle", {
       cx: x, cy: y, r: NODE_R,
       fill: color,
       stroke: "#fff",
-      "stroke-width": 2.5
+      "stroke-width": 3
     }));
-
-    // Label
-    const t = el("text", {
+    // State label
+    const lbl = el("text", {
       x, y: y + 6,
       fill: "white",
-      "font-size": 15,
+      "font-size": Math.max(10, NODE_R * 0.48),
       "font-family": "'DM Sans', sans-serif",
       "text-anchor": "middle",
-      "font-weight": "600"
+      "font-weight": "700"
     });
-    t.textContent = `S${i}`;
-    svg.appendChild(t);
+    lbl.textContent = `S${i}`;
+    svg.appendChild(lbl);
 
-    // Top emission symbol below
+    // Best-emission hint below node
     if (symbolNames && symbolNames.length > 0) {
-      const probs = B[i];
       let bestK = 0;
-      for (let k = 1; k < probs.length; k++) if (probs[k] > probs[bestK]) bestK = k;
-      text(x, y + NODE_R + 18,
-        `↑ ${symbolNames[bestK]} (${probs[bestK].toFixed(2)})`,
-        { fill: color, size: 11, mono: true });
+      for (let k = 1; k < M; k++) if (B[i][k] > B[i][bestK]) bestK = k;
+      const hint = el("text", {
+        x, y: y + NODE_R + 16,
+        fill: color,
+        "font-size": 10,
+        "font-family": "'IBM Plex Mono', monospace",
+        "text-anchor": "middle"
+      });
+      hint.textContent = `↑${symbolNames[bestK]}(${B[i][bestK].toFixed(2)})`;
+      svg.appendChild(hint);
     }
   }
 
-  // ---- Observation nodes ----
+  // ---- Observation boxes ----
+  const OBS_W = 64, OBS_H = 34;
   for (let k = 0; k < M; k++) {
     const x = obsPosX[k];
     const y = ROW_OBS;
     const label = symbolNames ? symbolNames[k] : `O${k}`;
 
-    // Shadow
     svg.appendChild(el("rect", {
       x: x - OBS_W/2 + 2, y: y - OBS_H/2 + 3,
-      width: OBS_W, height: OBS_H,
-      rx: 10,
+      width: OBS_W, height: OBS_H, rx: 8,
       fill: "rgba(0,0,0,0.05)"
     }));
-
-    // Box
     svg.appendChild(el("rect", {
       x: x - OBS_W/2, y: y - OBS_H/2,
-      width: OBS_W, height: OBS_H,
-      rx: 10,
+      width: OBS_W, height: OBS_H, rx: 8,
       fill: "#fff",
       stroke: "#c4cfe0",
       "stroke-width": 1.8
     }));
-
-    const t = el("text", {
+    const lbl = el("text", {
       x, y: y + 5,
       fill: "#334155",
-      "font-size": 14,
+      "font-size": 13,
       "font-family": "'IBM Plex Mono', monospace",
       "text-anchor": "middle",
       "font-weight": "600"
     });
-    t.textContent = label;
-    svg.appendChild(t);
+    lbl.textContent = label;
+    svg.appendChild(lbl);
   }
 
   container.appendChild(svg);
